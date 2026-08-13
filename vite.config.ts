@@ -11,7 +11,7 @@ export default defineConfig({
         description: '面向 115 网盘 Web 端的轻量用户脚本，专注下载、离线任务与界面体验',
         icon: 'https://115.com/favicon.ico',
         match: ['https://115.com/*'],
-        name: '115 Minus',
+        name: '115-',
         namespace: 'https://github.com/xndeye/115-minus',
         'run-at': 'document-start',
         source: 'https://github.com/xndeye/115-minus',
