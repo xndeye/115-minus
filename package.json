@@ -1,0 +1,70 @@
+{
+  "name": "115-minus",
+  "private": true,
+  "version": "0.0.0",
+  "author": {
+    "name": "xndeye",
+    "url": "https://github.com/xndeye"
+  },
+  "contributors": [
+    {
+      "name": "lvzhenbo",
+      "url": "https://github.com/lvzhenbo"
+    }
+  ],
+  "homepage": "https://github.com/xndeye/115-minus",
+  "bugs": {
+    "url": "https://github.com/xndeye/115-minus/issues"
+  },
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "run-s check build-only",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "tsc --build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "run-p lint type-check",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "release": "release-it"
+  },
+  "dependencies": {
+    "crypto-es": "^3.1.2",
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.0.1",
+    "eslint-config-prettier": "^10.1.8",
+    "npm-run-all2": "^8.0.4",
+    "prettier": "^3.8.1",
+    "release-it": "^19.2.4",
+    "typescript-eslint": "^8.67.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vite-plugin-monkey": "^7.1.9"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "release-it": {
+    "git": {
+      "commitMessage": "发布 v${version} 版本"
+    },
+    "github": {
+      "release": true,
+      "assets": [
+        "dist/115-minus.user.js"
+      ]
+    },
+    "hooks": {
+      "after:bump": "pnpm run build"
+    }
+  },
+  "packageManager": "pnpm@10.28.2"
+}

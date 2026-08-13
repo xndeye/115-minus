@@ -1,0 +1,12 @@
+.minus115-video-player-page,
+.minus115-video-player-page body {
+  overflow: hidden !important;
+}
+
+.minus115-video-player {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+}
