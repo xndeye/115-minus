@@ -1,4 +1,11 @@
+/* 普通广告 */
 div:has(> img[src*='act.115.com/api/1.0/web/1.0/spotlight/imgload']),
 div:has(> img[alt='购买VIP']) {
   display: none !important;
+}
+
+/* 弹窗广告 */
+body > div:has([id^="ad_popup_"]),
+body > div:has(+ div [id^="ad_popup_"]) {
+    display: none !important;
 }
