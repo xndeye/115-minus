@@ -54,8 +54,7 @@ export const findSelectionDownloadTarget = (): HTMLButtonElement | null => {
   const fileList = document.querySelector<HTMLElement>('.file-list-wrap');
   const sticky = fileList?.closest<HTMLElement>('.sticky');
   const selectionOverlay = sticky?.querySelector<HTMLElement>('.absolute.top-0.left-0.right-0');
-  const button = selectionOverlay?.querySelector('button');
-  return button instanceof HTMLButtonElement ? button : null;
+  return selectionOverlay ? findButton(selectionOverlay, '下载') : null;
 };
 
 export const openOfficialOfflineDownload = async (): Promise<void> => {

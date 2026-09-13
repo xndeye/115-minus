@@ -1,8 +1,8 @@
 import {
-  createMultipleSelectionDownload,
   createOfflineButton,
+  createSelectionDownload,
   createSettingsButton,
-  createSingleSelectionDownload,
+  setupFileItemDownload,
   type StoragePageActions,
 } from '@/features/storage/storage-page-controls';
 import { getSelectedFileCount } from '@/platform/115/storage-selection';
@@ -11,7 +11,6 @@ import {
   findOfflineToolbarTarget,
   findSelectionDownloadTarget,
   findSettingsTarget,
-  findUploadButton,
 } from '@/platform/115/storage-toolbar';
 
 type ElementFactory = (target: HTMLElement) => HTMLElement;
@@ -83,15 +82,6 @@ const removeElement: ElementRemover = (element) => {
   element.remove();
 };
 
-const insertAfterUpload: ElementInserter = (target, element) => {
-  const uploadButton = findUploadButton(target);
-  const uploadContainer = uploadButton?.parentElement;
-  if (!uploadContainer || uploadContainer.parentElement !== target) {
-    throw new Error('115- 插入直链下载按钮失败：未找到“上传”按钮容器');
-  }
-  uploadContainer.after(element);
-};
-
 interface HookedTarget {
   container: HTMLElement;
   overlay: HTMLElement;
@@ -102,18 +92,22 @@ interface HookedTarget {
 
 const hookedTargets = new WeakMap<HTMLElement, HookedTarget>();
 
+const resolveSelectionDownloadTarget = (): HTMLButtonElement | null =>
+  findSelectionDownloadTarget() ??
+  document.querySelector<HTMLButtonElement>('#minus115-download');
+
 const replaceSelectionDownload: ElementInserter = (target, element) => {
   const container = target.parentElement;
   if (!container) {
-    throw new Error('115- 替换多选下载按钮失败：官方按钮缺少容器');
+    throw new Error('115- 替换选中项下载按钮失败：官方按钮缺少容器');
   }
   const toolbar = container.parentElement;
   if (!toolbar) {
-    throw new Error('115- 替换多选下载按钮失败：官方操作栏不存在');
+    throw new Error('115- 替换选中项下载按钮失败：官方操作栏不存在');
   }
   const overlay = toolbar.parentElement?.parentElement;
   if (!overlay) {
-    throw new Error('115- 替换多选下载按钮失败：官方多选浮层不存在');
+    throw new Error('115- 替换选中项下载按钮失败：官方选中项浮层不存在');
   }
   const overflowHidden = toolbar.classList.contains('overflow-hidden');
   const zIndexRaised = overlay.classList.contains('z-10');
@@ -160,6 +154,7 @@ const affectsPageStructure = (records: MutationRecord[]): boolean =>
   );
 
 export const setupStoragePage = (app: StoragePageActions): void => {
+  setupFileItemDownload(app);
   const mounts = [
     new PersistentElement(
       () => createSettingsButton(app),
@@ -174,15 +169,9 @@ export const setupStoragePage = (app: StoragePageActions): void => {
       removeElement,
     ),
   ];
-  const singleDownloadMount = new PersistentElement(
-    (target) => createSingleSelectionDownload(target, app),
-    findOfflineToolbarTarget,
-    insertAfterUpload,
-    removeElement,
-  );
-  const multipleDownloadMount = new PersistentElement(
-    (target) => createMultipleSelectionDownload(target, app),
-    findSelectionDownloadTarget,
+  const selectionDownloadMount = new PersistentElement(
+    (target) => createSelectionDownload(target, app),
+    resolveSelectionDownloadTarget,
     replaceSelectionDownload,
     restoreSelectionDownload,
   );
@@ -192,8 +181,7 @@ export const setupStoragePage = (app: StoragePageActions): void => {
       syncAside();
       mounts.forEach((mount) => mount.sync(true));
       const selectedCount = getSelectedFileCount();
-      singleDownloadMount.sync(selectedCount === 1);
-      multipleDownloadMount.sync(selectedCount > 1);
+      selectionDownloadMount.sync(selectedCount > 0);
     } catch (error) {
       console.error('115- 同步页面功能失败', { error });
     }

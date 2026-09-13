@@ -1,8 +1,13 @@
 import { errorMessage } from '@/core/errors';
+import { downloadFileInBrowser } from '@/features/download/browser-download';
 import { pushSelectedToAria2, pushSelectedToIdm } from '@/features/download/selected-downloads';
 import { settings } from '@/features/settings/settings-store';
-import { getSelectedFiles } from '@/platform/115/storage-selection';
-import { findUploadButton, openOfficialOfflineDownload } from '@/platform/115/storage-toolbar';
+import {
+  findFileItemDownloadButton,
+  getFileFromListItem,
+  getSelectedFiles,
+} from '@/platform/115/storage-selection';
+import { openOfficialOfflineDownload } from '@/platform/115/storage-toolbar';
 import type { NotificationKind } from '@/ui/notifications';
 
 export interface StoragePageActions {
@@ -126,6 +131,43 @@ const createMenuButton = (id: string, labelText: string): HTMLButtonElement => {
   return button;
 };
 
+const runBrowserDownload = (
+  button: HTMLButtonElement,
+  pickCode: string,
+  app: StoragePageActions,
+): void => {
+  if (button.disabled) {
+    return;
+  }
+  button.disabled = true;
+  void downloadFileInBrowser(pickCode)
+    .catch((error: unknown) => {
+      console.error('115- 浏览器下载失败', { error });
+      app.showNotification('error', errorMessage(error));
+    })
+    .finally(() => {
+      button.disabled = false;
+    });
+};
+
+const handleSelectedBrowserDownload = (
+  button: HTMLButtonElement,
+  app: StoragePageActions,
+): void => {
+  try {
+    const selected = getSelectedFiles();
+    const file = selected[0];
+    if (selected.length === 1 && file && !file.isDirectory) {
+      runBrowserDownload(button, file.pickCode, app);
+      return;
+    }
+    app.openFileDownload();
+  } catch (error) {
+    console.error('115- 读取选中文件失败', { error });
+    app.showNotification('error', errorMessage(error));
+  }
+};
+
 const createDownloadDropdown = (
   template: HTMLButtonElement,
   app: StoragePageActions,
@@ -160,7 +202,9 @@ const createDownloadDropdown = (
   }
 
   const getLinkButton = createMenuButton('minus115-get-link', '浏览器下载');
-  getLinkButton.addEventListener('click', () => app.openFileDownload());
+  getLinkButton.addEventListener('click', () =>
+    handleSelectedBrowserDownload(getLinkButton, app),
+  );
   const aria2Button = createMenuButton('minus115-aria2', '推送Aria2');
   bindTransferAction(aria2Button, app, '推送Aria2', () =>
     pushSelectedToAria2(getSelectedFiles(), {
@@ -192,29 +236,46 @@ const createDownloadDropdown = (
   };
   wrapper.addEventListener('mouseenter', () => setOpen(true));
   wrapper.addEventListener('mouseleave', () => setOpen(false));
-  trigger.addEventListener('click', () => app.openFileDownload());
+  trigger.addEventListener('click', () => handleSelectedBrowserDownload(trigger, app));
   menu.addEventListener('click', () => setOpen(false));
   wrapper.append(trigger, menu);
   return wrapper;
 };
 
-export const createSingleSelectionDownload = (
-  target: HTMLElement,
-  app: StoragePageActions,
-): HTMLDivElement => {
-  const uploadButton = findUploadButton(target);
-  if (!uploadButton) {
-    throw new Error('115- 创建单选直链下载按钮失败：未找到“上传”按钮');
-  }
-  return createDownloadDropdown(uploadButton, app);
-};
-
-export const createMultipleSelectionDownload = (
+export const createSelectionDownload = (
   target: HTMLElement,
   app: StoragePageActions,
 ): HTMLDivElement => {
   if (!(target instanceof HTMLButtonElement)) {
-    throw new Error('115- 创建多选直链下载按钮失败：官方首个动作不是按钮');
+    throw new Error('115- 创建选中项直链下载按钮失败：官方“下载”入口不是按钮');
   }
   return createDownloadDropdown(target, app);
+};
+
+export const setupFileItemDownload = (app: StoragePageActions): void => {
+  document.addEventListener(
+    'click',
+    (event) => {
+      const button = findFileItemDownloadButton(event.target);
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (button.disabled) {
+        return;
+      }
+
+      let pickCode: string;
+      try {
+        pickCode = getFileFromListItem(button).pickCode;
+      } catch (error) {
+        console.error('115- 读取列表项文件失败', { error });
+        app.showNotification('error', errorMessage(error));
+        return;
+      }
+      runBrowserDownload(button, pickCode, app);
+    },
+    true,
+  );
 };

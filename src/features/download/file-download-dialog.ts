@@ -1,6 +1,7 @@
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { errorMessage } from '@/core/errors';
-import { getDownloadLink, listFolder } from '@/platform/115/download-api';
+import { downloadFileInBrowser } from '@/features/download/browser-download';
+import { listFolder } from '@/platform/115/download-api';
 import { getSelectedFiles } from '@/platform/115/storage-selection';
 import type { StorageEntry } from '@/platform/115/storage-entry';
 import { featureStyles } from '@/ui/feature-styles';
@@ -12,16 +13,6 @@ interface DownloadNode extends StorageEntry {
 }
 
 const createNode = (entry: StorageEntry): DownloadNode => ({ ...entry });
-
-const startBrowserDownload = (url: string, name: string): void => {
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = name;
-  anchor.hidden = true;
-  document.body.appendChild(anchor);
-  anchor.click();
-  window.setTimeout(() => anchor.remove(), 100);
-};
 
 const replaceChildren = (
   nodes: DownloadNode[],
@@ -182,8 +173,7 @@ export class FileDownloadDialog extends LitElement {
     }
     this.downloadingCodes = [...this.downloadingCodes, node.pickCode];
     try {
-      const link = await getDownloadLink(node.pickCode);
-      startBrowserDownload(link.url, link.name);
+      await downloadFileInBrowser(node.pickCode);
     } catch (error) {
       notify(this, 'error', errorMessage(error));
     } finally {

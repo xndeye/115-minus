@@ -31,13 +31,13 @@ const readPageFile = (checkbox: HTMLInputElement): StoragePageFile => {
     fiber = fiber.return ?? undefined;
   }
   if (!fiber?.memoizedProps?.file) {
-    throw new ApplicationError('读取选中文件', '115 页面组件结构已变化，无法获取文件信息');
+    throw new ApplicationError('读取文件信息', '115 页面组件结构已变化，无法获取文件信息');
   }
   return fiber.memoizedProps.file;
 };
 
 const normalizePageFile = (file: StoragePageFile): StorageEntry => {
-  const operation = '读取选中文件';
+  const operation = '读取文件信息';
   const name = file.n ?? file.name;
   const pickCode = file.pc;
   const isDirectory = file.type === 'folder' || file.file_type === 'folder' || !file.fid;
@@ -72,6 +72,32 @@ export const getSelectedFiles = (): StorageEntry[] =>
     ),
     (checkbox) => normalizePageFile(readPageFile(checkbox)),
   );
+
+export const findFileItemDownloadButton = (
+  target: EventTarget | null,
+): HTMLButtonElement | null => {
+  const button =
+    target instanceof Element
+      ? target.closest<HTMLButtonElement>(
+          '.file-list-item [data-menu-action="download"] > button',
+        )
+      : null;
+  return button instanceof HTMLButtonElement ? button : null;
+};
+
+export const getFileFromListItem = (target: Element): StorageEntry => {
+  const item = target.closest<HTMLElement>('.file-list-item[data-file-id]');
+  if (!item) {
+    throw new ApplicationError('读取列表项文件', '下载入口不在文件列表项中');
+  }
+  const checkbox = item.querySelector<HTMLInputElement>(
+    '.checkbox-area input[type="checkbox"]',
+  );
+  if (!checkbox) {
+    throw new ApplicationError('读取列表项文件', '列表项中不存在文件复选框');
+  }
+  return normalizePageFile(readPageFile(checkbox));
+};
 
 export const getSelectedFileCount = (): number =>
   document.querySelectorAll('.file-list-wrap .checkbox-area input[type="checkbox"]:checked').length;
