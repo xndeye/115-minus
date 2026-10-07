@@ -1,5 +1,6 @@
-const PLAYER_CLASS_NAME = 'minus115-video-player';
-const PLAYER_PAGE_CLASS_NAME = 'minus115-video-player-page';
+import { settings } from '@/features/settings/settings-store';
+
+const WEB_FULLSCREEN_BUTTON_SELECTOR = 'button[aria-label="网页全屏"]';
 const MUTED_STORAGE_KEY = 'video-muted';
 const VOLUME_STORAGE_KEY = 'video-volume';
 const DEFAULT_MUTED = false;
@@ -17,36 +18,22 @@ const readStoredVolume = (): number => {
     : DEFAULT_VOLUME;
 };
 
-const resolvePlayer = (video: HTMLVideoElement): HTMLElement => {
-  const player = video.parentElement;
-  if (!player) {
-    throw new Error('115- 铺满视频播放器失败：video 元素缺少父容器');
-  }
-  return player;
-};
-
 export const setupVideoPlayer = (): void => {
-  document.documentElement.classList.add(PLAYER_PAGE_CLASS_NAME);
-
   let boundVideo: HTMLVideoElement | null = null;
-  let player: HTMLElement | null = null;
   let volumeController: AbortController | null = null;
   let restoreTimer: number | null = null;
+  let webFullscreenRequested = false;
 
   const bindVideo = (video: HTMLVideoElement): void => {
     volumeController?.abort();
     if (restoreTimer !== null) {
       window.clearTimeout(restoreTimer);
     }
-    player?.classList.remove(PLAYER_CLASS_NAME);
-
     const storedMuted = readStoredMuted();
     const storedVolume = readStoredVolume();
-    const nextPlayer = resolvePlayer(video);
     const nextVolumeController = new AbortController();
     video.muted = storedMuted;
     video.volume = storedVolume;
-    nextPlayer.classList.add(PLAYER_CLASS_NAME);
 
     restoreTimer = window.setTimeout(() => {
       if (!video.isConnected) {
@@ -66,16 +53,27 @@ export const setupVideoPlayer = (): void => {
     }, 0);
 
     boundVideo = video;
-    player = nextPlayer;
     volumeController = nextVolumeController;
+  };
+
+  const enterWebFullscreen = (): void => {
+    if (!settings.webFullscreen || webFullscreenRequested) {
+      return;
+    }
+    const button = document.querySelector(WEB_FULLSCREEN_BUTTON_SELECTOR);
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    webFullscreenRequested = true;
+    button.click();
   };
 
   const sync = (): void => {
     const video = document.querySelector('video');
-    if (!(video instanceof HTMLVideoElement) || video === boundVideo) {
-      return;
+    if (video instanceof HTMLVideoElement && video !== boundVideo) {
+      bindVideo(video);
     }
-    bindVideo(video);
+    enterWebFullscreen();
   };
 
   sync();

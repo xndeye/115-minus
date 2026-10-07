@@ -6,7 +6,6 @@ import {
 } from '@/features/storage/storage-page-defaults';
 import { setupStoragePage } from '@/features/storage/setup-storage-page';
 import '@/features/ad-block/ad-block.css';
-import '@/features/player/video-player.css';
 
 const isVideoPlayerPage = window.location.pathname.startsWith('/players/video/');
 const isStoragePage =

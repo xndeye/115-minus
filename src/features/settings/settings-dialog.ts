@@ -33,6 +33,12 @@ export class SettingsDialog extends LitElement {
         color: var(--minus115-muted);
         font-size: 13px;
       }
+
+      label.toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
     `,
   ];
 
@@ -48,8 +54,12 @@ export class SettingsDialog extends LitElement {
     this.openState = false;
   }
 
-  private updateText(key: keyof Settings, value: string): void {
+  private updateText(key: 'aria2RpcUrl' | 'aria2Secret' | 'idmClientId', value: string): void {
     this.draft = { ...this.draft, [key]: value };
+  }
+
+  private updateWebFullscreen(value: boolean): void {
+    this.draft = { ...this.draft, webFullscreen: value };
   }
 
   private save(): void {
@@ -112,6 +122,19 @@ export class SettingsDialog extends LitElement {
                 }
               }}
             />
+          </label>
+          <h3>播放器</h3>
+          <label class="toggle">
+            <input
+              type="checkbox"
+              .checked=${this.draft.webFullscreen}
+              @change=${(event: Event) => {
+                if (event.currentTarget instanceof HTMLInputElement) {
+                  this.updateWebFullscreen(event.currentTarget.checked);
+                }
+              }}
+            />
+            <span>自动进入网页全屏</span>
           </label>
         </div>
         <div class="actions" slot="footer">
