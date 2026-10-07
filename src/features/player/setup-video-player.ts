@@ -1,6 +1,7 @@
 import { settings } from '@/features/settings/settings-store';
 
-const WEB_FULLSCREEN_BUTTON_SELECTOR = 'button[aria-label="网页全屏"]';
+const WEB_FULLSCREEN_ICON_SELECTOR =
+  'img[src$="/images/players/video_player/web_full_screen.svg"]';
 const MUTED_STORAGE_KEY = 'video-muted';
 const VOLUME_STORAGE_KEY = 'video-volume';
 const DEFAULT_MUTED = false;
@@ -18,20 +19,49 @@ const readStoredVolume = (): number => {
     : DEFAULT_VOLUME;
 };
 
+const resolvePlayer = (video: HTMLVideoElement): HTMLElement => {
+  const player = video.parentElement;
+  if (!player) {
+    throw new Error('115- 进入网页全屏失败：video 元素缺少播放器容器');
+  }
+  return player;
+};
+
+const enterWebFullscreen = (video: HTMLVideoElement, signal: AbortSignal): void => {
+  const enter = (): void => {
+    window.requestAnimationFrame(() => {
+      if (signal.aborted) {
+        return;
+      }
+      const icon = resolvePlayer(video).querySelector(WEB_FULLSCREEN_ICON_SELECTOR);
+      const button = icon?.closest('button');
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error('115- 进入网页全屏失败：未找到原站网页全屏按钮');
+      }
+      button.click();
+    });
+  };
+
+  if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    enter();
+  } else {
+    video.addEventListener('loadedmetadata', enter, { once: true, signal });
+  }
+};
+
 export const setupVideoPlayer = (): void => {
   let boundVideo: HTMLVideoElement | null = null;
-  let volumeController: AbortController | null = null;
+  let videoController: AbortController | null = null;
   let restoreTimer: number | null = null;
-  let webFullscreenRequested = false;
 
   const bindVideo = (video: HTMLVideoElement): void => {
-    volumeController?.abort();
+    videoController?.abort();
     if (restoreTimer !== null) {
       window.clearTimeout(restoreTimer);
     }
     const storedMuted = readStoredMuted();
     const storedVolume = readStoredVolume();
-    const nextVolumeController = new AbortController();
+    const nextVideoController = new AbortController();
     video.muted = storedMuted;
     video.volume = storedVolume;
 
@@ -47,25 +77,17 @@ export const setupVideoPlayer = (): void => {
           GM_setValue(MUTED_STORAGE_KEY, video.muted);
           GM_setValue(VOLUME_STORAGE_KEY, video.volume);
         },
-        { signal: nextVolumeController.signal },
+        { signal: nextVideoController.signal },
       );
       restoreTimer = null;
     }, 0);
 
-    boundVideo = video;
-    volumeController = nextVolumeController;
-  };
+    if (settings.webFullscreen) {
+      enterWebFullscreen(video, nextVideoController.signal);
+    }
 
-  const enterWebFullscreen = (): void => {
-    if (!settings.webFullscreen || webFullscreenRequested) {
-      return;
-    }
-    const button = document.querySelector(WEB_FULLSCREEN_BUTTON_SELECTOR);
-    if (!(button instanceof HTMLButtonElement)) {
-      return;
-    }
-    webFullscreenRequested = true;
-    button.click();
+    boundVideo = video;
+    videoController = nextVideoController;
   };
 
   const sync = (): void => {
@@ -73,7 +95,6 @@ export const setupVideoPlayer = (): void => {
     if (video instanceof HTMLVideoElement && video !== boundVideo) {
       bindVideo(video);
     }
-    enterWebFullscreen();
   };
 
   sync();
