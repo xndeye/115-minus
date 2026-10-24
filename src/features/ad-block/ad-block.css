@@ -5,7 +5,6 @@ div:has(> img[alt='购买VIP']) {
 }
 
 /* 弹窗广告 */
-body > div:has([id^='ad_popup_']),
-body > div:has(+ div [id^='ad_popup_']) {
+body > div:has([id^='ad_popup_']) {
   display: none !important;
 }
