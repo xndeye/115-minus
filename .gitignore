@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .agents/
 .codex/
+.playwright-mcp/
 
 # Editor directories and files
 .vscode/*

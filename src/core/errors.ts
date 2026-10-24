@@ -1,11 +1,9 @@
 export class ApplicationError extends Error {
-  readonly originalCause: unknown;
   readonly operation: string;
 
   constructor(operation: string, message: string, cause?: unknown) {
-    super(`${operation}：${message}`);
+    super(`${operation}：${message}`, { cause });
     this.name = 'ApplicationError';
-    this.originalCause = cause;
     this.operation = operation;
   }
 }

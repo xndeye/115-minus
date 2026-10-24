@@ -28,20 +28,24 @@ export const requireString = (object: JsonObject, key: string, operation: string
 
 export const requireIdentifier = (object: JsonObject, key: string, operation: string): string => {
   const value = object[key];
-  if (typeof value === 'string' && value) {
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
     return value;
   }
-  if (typeof value === 'number' && Number.isFinite(value)) {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
     return String(value);
   }
   throw new ApplicationError(operation, `响应字段 ${key} 不是有效标识符`);
 };
 
-export const requireNumber = (object: JsonObject, key: string, operation: string): number => {
+export const requireNonNegativeInteger = (
+  object: JsonObject,
+  key: string,
+  operation: string,
+): number => {
   const value = object[key];
-  const number = typeof value === 'string' && value !== '' ? Number(value) : value;
-  if (typeof number !== 'number' || !Number.isFinite(number)) {
-    throw new ApplicationError(operation, `响应字段 ${key} 不是有效数字`);
+  const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 0) {
+    throw new ApplicationError(operation, `响应字段 ${key} 不是有效的非负整数`);
   }
   return number;
 };

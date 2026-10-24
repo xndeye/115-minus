@@ -1,122 +1,78 @@
-import { ApplicationError } from '@/core/errors';
+import '@/platform/115/storage-sidebar.css';
 
-interface AsideReplacement {
+interface AsideItem {
+  href: string;
   icon: string;
   label: string;
-  sourceHref: string;
-  targetHref: string;
 }
 
-interface AsideAppearance {
-  imageClassNames: string[];
-  labelClassName: string;
-  linkClassName: string;
-  style: string | null;
-}
-
-const ASIDE_REPLACEMENTS: AsideReplacement[] = [
+const ASIDE_ITEMS: AsideItem[] = [
   {
-    sourceHref: '/social/jianghu',
-    targetHref: '/storage/recentupload',
-    label: '最近上传',
+    href: '/storage/allfiles?cid=0&mode=wangpan',
+    icon: '/icons/sidebar_storage_gray.svg',
+    label: '存储',
+  },
+  {
+    href: '/storage/recentupload',
     icon: '/icons/storage/channel_recent_upload.svg',
+    label: '最近上传',
   },
   {
-    sourceHref: '/chat',
-    targetHref: '/storage/clouddownload',
-    label: '云下载',
+    href: '/storage/clouddownload',
     icon: '/icons/storage/channel_cloud_download.svg',
+    label: '云下载',
   },
   {
-    sourceHref: '/life/mine/vip',
-    targetHref: '/storage/recyclebin',
-    label: '回收站',
+    href: '/storage/recyclebin',
     icon: '/icons/storage/channel_recycle_bin.svg',
+    label: '回收站',
   },
 ];
 
-const replaceAsideItem = (item: AsideReplacement): void => {
-  const source = document.querySelector<HTMLAnchorElement>(
-    `aside nav a[href="${item.sourceHref}"]`,
-  );
-  if (!source) {
-    return;
-  }
-  const replacement = source.cloneNode(true) as HTMLAnchorElement;
-  replacement.href = item.targetHref;
-  replacement.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
-    image.alt = item.label;
+const createAside = (): HTMLElement => {
+  const nav = document.createElement('nav');
+  nav.id = 'minus115-sidebar';
+  nav.setAttribute('aria-label', '115- 导航');
+  ASIDE_ITEMS.forEach((item) => {
+    const link = document.createElement('a');
+    link.href = item.href;
+    const image = document.createElement('img');
     image.src = item.icon;
+    image.alt = '';
+    const label = document.createElement('span');
+    label.textContent = item.label;
+    link.append(image, label);
+    nav.append(link);
   });
-  const labels = Array.from(replacement.children).filter(
-    (child): child is HTMLSpanElement => child instanceof HTMLSpanElement,
-  );
-  const label = labels.shift();
-  if (!label) {
-    throw new ApplicationError('更新侧边栏', `入口“${item.label}”缺少文字节点`);
-  }
-  label.textContent = item.label;
-  labels.forEach((extra) => extra.remove());
-  source.replaceWith(replacement);
+  return nav;
 };
 
-const readAsideAppearance = (link: HTMLAnchorElement): AsideAppearance => {
-  const label = link.querySelector<HTMLSpanElement>(':scope > span');
-  const images = Array.from(link.querySelectorAll<HTMLImageElement>(':scope > img'));
-  if (!label || images.length === 0) {
-    throw new ApplicationError('更新侧边栏选中状态', '官方菜单项结构不完整');
-  }
-  return {
-    imageClassNames: images.map((image) => image.className),
-    labelClassName: label.className,
-    linkClassName: link.className,
-    style: link.getAttribute('style'),
-  };
-};
-
-const applyAsideAppearance = (link: HTMLAnchorElement, appearance: AsideAppearance): void => {
-  const label = link.querySelector<HTMLSpanElement>(':scope > span');
-  const images = Array.from(link.querySelectorAll<HTMLImageElement>(':scope > img'));
-  if (!label || images.length !== appearance.imageClassNames.length) {
-    throw new ApplicationError('更新侧边栏选中状态', '菜单项与官方模板结构不一致');
-  }
-  link.className = appearance.linkClassName;
-  if (appearance.style === null) {
-    link.removeAttribute('style');
-  } else {
-    link.setAttribute('style', appearance.style);
-  }
-  label.className = appearance.labelClassName;
-  images.forEach((image, index) => {
-    const className = appearance.imageClassNames[index];
-    if (className === undefined) {
-      throw new ApplicationError('更新侧边栏选中状态', '官方图标状态缺失');
+export const setupAside = (signal: AbortSignal): (() => void) => {
+  let navigation: HTMLElement | null = null;
+  signal.addEventListener('abort', () => navigation?.remove(), { once: true });
+  return (): void => {
+    if (!navigation?.isConnected) {
+      const official = document.querySelector<HTMLElement>('aside nav:not(#minus115-sidebar)');
+      if (!official) {
+        return;
+      }
+      navigation ??= createAside();
+      official.after(navigation);
     }
-    image.className = className;
-  });
-};
 
-const syncAsideSelection = (): void => {
-  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('aside nav a'));
-  const activeTemplate = links.find(
-    (link) => link.classList.contains('bg-white') && link.classList.contains('text-blue-600'),
-  );
-  const inactiveTemplate = links.find((link) => link.classList.contains('text-[#6F8396]'));
-  if (!activeTemplate || !inactiveTemplate) {
-    return;
-  }
-  const activeAppearance = readAsideAppearance(activeTemplate);
-  const inactiveAppearance = readAsideAppearance(inactiveTemplate);
-  links.forEach((link) => {
-    const appearance =
-      new URL(link.href).pathname === window.location.pathname
-        ? activeAppearance
-        : inactiveAppearance;
-    applyAsideAppearance(link, appearance);
-  });
-};
-
-export const syncAside = (): void => {
-  ASIDE_REPLACEMENTS.forEach(replaceAsideItem);
-  syncAsideSelection();
+    const pathname = window.location.pathname;
+    const shortcut = ASIDE_ITEMS.slice(1).find((item) => item.href === pathname);
+    const activeHref =
+      shortcut?.href ??
+      (pathname === '/storage' || pathname.startsWith('/storage/')
+        ? ASIDE_ITEMS[0]?.href
+        : undefined);
+    navigation.querySelectorAll<HTMLAnchorElement>('a').forEach((link) => {
+      if (link.getAttribute('href') === activeHref) {
+        link.setAttribute('aria-current', 'page');
+      } else if (link.hasAttribute('aria-current')) {
+        link.removeAttribute('aria-current');
+      }
+    });
+  };
 };

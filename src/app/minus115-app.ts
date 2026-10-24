@@ -1,7 +1,8 @@
 import { LitElement, css, html } from 'lit';
 import type { FileDownloadDialog } from '@/features/download/file-download-dialog';
 import type { SettingsDialog } from '@/features/settings/settings-dialog';
-import type { NotificationDetail, NotificationKind } from '@/ui/notifications';
+import type { NotificationKind } from '@/ui/notifications';
+import type { StorageEntry } from '@/platform/115/storage-entry';
 import '@/features/download/file-download-dialog';
 import '@/features/settings/settings-dialog';
 
@@ -11,11 +12,8 @@ interface Toast {
   message: string;
 }
 
-const media = window.matchMedia('(prefers-color-scheme: dark)');
-
 export class Minus115App extends LitElement {
   static properties = {
-    dark: { reflect: true, state: true, type: Boolean },
     toasts: { state: true },
   };
 
@@ -32,12 +30,14 @@ export class Minus115App extends LitElement {
       display: contents;
     }
 
-    :host([dark]) {
-      --minus115-text: #e5e7eb;
-      --minus115-muted: #a8adb5;
-      --minus115-border: #3d424a;
-      --minus115-surface: #202328;
-      --minus115-hover: #30343b;
+    @media (prefers-color-scheme: dark) {
+      :host {
+        --minus115-text: #e5e7eb;
+        --minus115-muted: #a8adb5;
+        --minus115-border: #3d424a;
+        --minus115-surface: #202328;
+        --minus115-hover: #30343b;
+      }
     }
 
     .toasts {
@@ -77,22 +77,18 @@ export class Minus115App extends LitElement {
     }
   `;
 
-  private dark = media.matches;
   private nextToastId = 1;
   private toasts: Toast[] = [];
-
-  connectedCallback(): void {
-    super.connectedCallback();
-    media.addEventListener('change', this.handleColorSchemeChange);
-  }
+  private readonly toastTimers = new Set<number>();
 
   disconnectedCallback(): void {
-    media.removeEventListener('change', this.handleColorSchemeChange);
+    this.toastTimers.forEach((timer) => window.clearTimeout(timer));
+    this.toastTimers.clear();
     super.disconnectedCallback();
   }
 
-  openFileDownload(): void {
-    this.getFeature('minus115-file-download').openDialog();
+  openFileDownload(selected: readonly StorageEntry[]): void {
+    this.getFeature('minus115-file-download').openDialog(selected);
   }
 
   openSettings(): void {
@@ -107,12 +103,14 @@ export class Minus115App extends LitElement {
     };
     this.nextToastId += 1;
     this.toasts = [...this.toasts, toast];
-    window.setTimeout(
+    const timer = window.setTimeout(
       () => {
+        this.toastTimers.delete(timer);
         this.toasts = this.toasts.filter((item) => item.id !== toast.id);
       },
       kind === 'error' ? 6_000 : 3_000,
     );
+    this.toastTimers.add(timer);
   }
 
   private getFeature(selector: 'minus115-file-download'): FileDownloadDialog;
@@ -125,20 +123,10 @@ export class Minus115App extends LitElement {
     return feature;
   }
 
-  private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
-    this.dark = event.matches;
-  };
-
-  private handleNotification(event: CustomEvent<NotificationDetail>): void {
-    this.showNotification(event.detail.kind, event.detail.message);
-  }
-
   protected render() {
     return html`
-      <div data-theme=${this.dark ? 'dark' : 'light'} @minus115-notify=${this.handleNotification}>
-        <minus115-file-download></minus115-file-download>
-        <minus115-settings-dialog></minus115-settings-dialog>
-      </div>
+      <minus115-file-download></minus115-file-download>
+      <minus115-settings-dialog></minus115-settings-dialog>
       <div class="toasts" aria-live="polite" aria-atomic="true">
         ${this.toasts.map(
           (toast) => html`<div class="toast ${toast.kind}" role="status">${toast.message}</div>`,

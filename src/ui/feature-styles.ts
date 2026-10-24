@@ -7,8 +7,7 @@ export const featureStyles = css`
   }
 
   button,
-  input,
-  textarea {
+  input {
     box-sizing: border-box;
     font: inherit;
   }
@@ -34,10 +33,6 @@ export const featureStyles = css`
     background: var(--minus115-primary);
   }
 
-  button.danger {
-    color: var(--minus115-danger);
-  }
-
   button.link {
     min-height: auto;
     padding: 2px 4px;
@@ -52,8 +47,7 @@ export const featureStyles = css`
   }
 
   input[type='text'],
-  input[type='password'],
-  textarea {
+  input[type='password'] {
     width: 100%;
     border: 1px solid var(--minus115-border);
     border-radius: 6px;
@@ -68,14 +62,7 @@ export const featureStyles = css`
     padding: 0 10px;
   }
 
-  textarea {
-    min-height: 210px;
-    padding: 10px;
-    resize: vertical;
-  }
-
-  input:focus,
-  textarea:focus {
+  input:focus {
     border-color: var(--minus115-primary);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--minus115-primary) 18%, transparent);
   }
@@ -87,16 +74,7 @@ export const featureStyles = css`
     gap: 10px;
   }
 
-  .empty,
-  .muted {
-    color: var(--minus115-muted);
-  }
-
-  .loading {
-    display: flex;
-    min-height: 100px;
-    align-items: center;
-    justify-content: center;
+  .empty {
     color: var(--minus115-muted);
   }
 `;

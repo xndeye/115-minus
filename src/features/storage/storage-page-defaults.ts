@@ -8,7 +8,10 @@ export const redirectLegacyStoragePage = (): boolean => {
   if (!isLegacyStoragePage) {
     return false;
   }
-  window.location.replace(NEW_STORAGE_PAGE_PATH);
+  const target = new URL(NEW_STORAGE_PAGE_PATH, window.location.origin);
+  target.search = window.location.search;
+  target.hash = window.location.hash;
+  window.location.replace(target.href);
   return true;
 };
 

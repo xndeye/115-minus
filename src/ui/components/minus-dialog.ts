@@ -1,11 +1,10 @@
-import { LitElement, css, html, type PropertyValues } from 'lit';
+import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 
 export class MinusDialog extends LitElement {
   static properties = {
-    closeDisabled: { attribute: 'close-disabled', type: Boolean },
+    errorMessage: { attribute: false, type: String },
     heading: { type: String },
     open: { type: Boolean },
-    size: { type: String },
     hasFooter: { state: true },
   };
 
@@ -25,14 +24,6 @@ export class MinusDialog extends LitElement {
       color: var(--minus115-text);
       background: var(--minus115-surface);
       box-shadow: 0 16px 48px rgb(0 0 0 / 24%);
-    }
-
-    dialog.wide {
-      width: min(1120px, calc(100vw - 32px));
-    }
-
-    dialog.narrow {
-      width: min(420px, calc(100vw - 32px));
     }
 
     dialog::backdrop {
@@ -78,20 +69,22 @@ export class MinusDialog extends LitElement {
       line-height: 1;
     }
 
-    .close:hover:not(:disabled) {
+    .close:hover {
       color: var(--minus115-text);
       background: var(--minus115-hover);
-    }
-
-    .close:disabled {
-      cursor: not-allowed;
-      opacity: 0.45;
     }
 
     .body {
       min-height: 0;
       padding: 18px;
       overflow: auto;
+    }
+
+    .error {
+      margin: 0 0 12px;
+      color: var(--minus115-danger);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
     footer {
@@ -104,14 +97,13 @@ export class MinusDialog extends LitElement {
     }
   `;
 
-  closeDisabled = false;
+  errorMessage = '';
   heading = '';
   open = false;
-  size: 'medium' | 'narrow' | 'wide' = 'medium';
   private hasFooter = false;
 
   protected updated(changed: PropertyValues<this>): void {
-    if (!changed.has('open')) {
+    if (!this.isConnected || !changed.has('open')) {
       return;
     }
     const dialog = this.renderRoot.querySelector('dialog');
@@ -126,9 +118,7 @@ export class MinusDialog extends LitElement {
   }
 
   private requestClose(): void {
-    if (!this.closeDisabled) {
-      this.dispatchEvent(new CustomEvent('minus-close', { bubbles: true, composed: true }));
-    }
+    this.dispatchEvent(new CustomEvent('minus-close', { bubbles: true, composed: true }));
   }
 
   private handleCancel(event: Event): void {
@@ -166,7 +156,6 @@ export class MinusDialog extends LitElement {
   protected render() {
     return html`
       <dialog
-        class=${this.size}
         aria-labelledby="minus115-dialog-heading"
         @cancel=${this.handleCancel}
         @click=${this.handleBackdropClick}
@@ -185,17 +174,16 @@ export class MinusDialog extends LitElement {
         <article>
           <header>
             <h2 id="minus115-dialog-heading">${this.heading}</h2>
-            <button
-              class="close"
-              type="button"
-              aria-label="关闭"
-              ?disabled=${this.closeDisabled}
-              @click=${this.requestClose}
-            >
+            <button class="close" type="button" aria-label="关闭" @click=${this.requestClose}>
               ×
             </button>
           </header>
-          <div class="body"><slot></slot></div>
+          <div class="body">
+            ${this.errorMessage
+              ? html`<p class="error" role="alert">${this.errorMessage}</p>`
+              : nothing}
+            <slot></slot>
+          </div>
           <footer ?hidden=${!this.hasFooter}>
             <slot name="footer" @slotchange=${this.handleFooterChange}></slot>
           </footer>

@@ -43,7 +43,7 @@ const createRequestBody = (sequence: number, link: DownloadLink, size: number): 
 const send = async (config: IdmConfig, link: DownloadLink, size: number): Promise<void> => {
   const operation = `推送“${link.name}”到 IDM`;
   validateIdmClientId(config.clientId);
-  const sequence = nextSequence;
+  const sequence = nextSequence++;
   const response = await requestTextWithRetry({
     operation,
     method: 'POST',
@@ -53,15 +53,18 @@ const send = async (config: IdmConfig, link: DownloadLink, size: number): Promis
   if (!response.body.endsWith(`${sequence}:3;`)) {
     throw new ApplicationError(operation, `IDM 扩展返回无法识别的响应：${response.body || '<空>'}`);
   }
-  nextSequence += 1;
 };
 
 export const addIdmDownload = (
   config: IdmConfig,
   link: DownloadLink,
   size: number,
+  signal: AbortSignal,
 ): Promise<void> => {
-  const task = requestQueue.then(() => send(config, link, size));
+  const task = requestQueue.then(() => {
+    signal.throwIfAborted();
+    return send(config, link, size);
+  });
   requestQueue = task.catch(() => undefined);
   return task;
 };

@@ -11,13 +11,12 @@ const KEY_TABLE = [
   190, 232, 30, 54, 159, 52, 128, 92, 69, 44, 155, 118, 213, 27, 143, 204, 195, 184, 245,
 ] as const;
 
-const SHORT_KEY = [0x29, 0x23, 0x21, 0x5e] as const;
 const LONG_KEY = [120, 6, 173, 76, 51, 134, 93, 24, 76, 1, 63, 70] as const;
 const RSA_MODULUS = BigInt(
   '0x8686980c0f5a24c4b9d43020cd2c22703ff3f450756529058b1cf88f09b8602136477198a6e2683149659bd122c33592fdb5ad47944ad1ea4d36c6b172aad6338c3bb6ac6227502d010993ac967d1aef00f0c8e038de2e4d3bc2ec368af2e9f10a6f1eda4f7262f136420c07c331b871bf139f74f3010e3c4fe57df3afb71683',
 );
 const RSA_EXPONENT = 0x10001n;
-const UTF8_DECODER = new TextDecoder();
+const UTF8_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export interface EncodedDownloadRequest {
   data: string;
@@ -41,10 +40,7 @@ const xor = (source: readonly number[], key: readonly number[]): number[] => {
   });
 };
 
-const deriveKey = (length: 4 | 12, key: readonly number[] | null): number[] => {
-  if (key === null) {
-    return [...(length === 12 ? LONG_KEY : SHORT_KEY)];
-  }
+const deriveKey = (length: 4 | 12, key: readonly number[]): number[] => {
   return Array.from({ length }, (_, index) => {
     const value = key[index];
     const left = KEY_TABLE[length * index];
@@ -56,12 +52,16 @@ const deriveKey = (length: 4 | 12, key: readonly number[] | null): number[] => {
   });
 };
 
-const symmetricEncode = (source: number[], key: number[]): number[] => {
+const symmetricEncode = (source: readonly number[], key: readonly number[]): number[] => {
   const first = xor(source, deriveKey(4, key));
-  return xor(first.reverse(), deriveKey(12, null));
+  return xor(first.reverse(), LONG_KEY);
 };
 
-const symmetricDecode = (source: number[], key: number[], salt: number[]): number[] => {
+const symmetricDecode = (
+  source: readonly number[],
+  key: readonly number[],
+  salt: readonly number[],
+): number[] => {
   const first = xor(source, deriveKey(12, salt));
   return xor(first.reverse(), deriveKey(4, key));
 };
@@ -69,13 +69,12 @@ const symmetricDecode = (source: number[], key: number[], salt: number[]): numbe
 const bytesToHex = (bytes: readonly number[]): string =>
   bytes.map((value) => value.toString(16).padStart(2, '0')).join('');
 
-const hexToString = (hex: string): string => {
-  const bytes = hex.match(/.{2}/g);
-  if (!bytes) {
-    return '';
-  }
-  return bytesToString(bytes.map((value) => Number.parseInt(value, 16)));
-};
+const hexToString = (hex: string): string =>
+  bytesToString(
+    Array.from({ length: hex.length / 2 }, (_, index) =>
+      Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16),
+    ),
+  );
 
 const modularPower = (baseValue: bigint, exponentValue: bigint, modulus: bigint): bigint => {
   let base = baseValue % modulus;
@@ -152,8 +151,15 @@ export const encodeDownloadRequest = (
   };
 };
 
-export const decodeDownloadResponse = (source: string, key: number[]): string => {
-  const decoded = rsaDecode(stringToBytes(window.atob(source)));
+export const decodeDownloadResponse = (source: string, key: readonly number[]): string => {
+  const bytes = stringToBytes(window.atob(source));
+  if (bytes.length === 0 || bytes.length % 128 !== 0) {
+    throw new ApplicationError('解析下载地址', 'RSA 响应块长度无效');
+  }
+  const decoded = rsaDecode(bytes);
+  if (decoded.length < 16) {
+    throw new ApplicationError('解析下载地址', '响应缺少编码密钥');
+  }
   const payload = symmetricDecode(decoded.slice(16), key, decoded.slice(0, 16));
   return UTF8_DECODER.decode(Uint8Array.from(payload));
 };

@@ -1,6 +1,10 @@
 import { errorMessage } from '@/core/errors';
 import { downloadFileInBrowser } from '@/features/download/browser-download';
-import { pushSelectedToAria2, pushSelectedToIdm } from '@/features/download/selected-downloads';
+import {
+  pushSelectedToAria2,
+  pushSelectedToIdm,
+  type TransferResult,
+} from '@/features/download/selected-downloads';
 import { settings } from '@/features/settings/settings-store';
 import {
   findFileItemDownloadButton,
@@ -9,23 +13,19 @@ import {
 } from '@/platform/115/storage-selection';
 import { openOfficialOfflineDownload } from '@/platform/115/storage-toolbar';
 import type { NotificationKind } from '@/ui/notifications';
+import type { StorageEntry } from '@/platform/115/storage-entry';
 
 export interface StoragePageActions {
-  openFileDownload(): void;
+  openFileDownload(selected: readonly StorageEntry[]): void;
   openSettings(): void;
   showNotification(kind: NotificationKind, message: string): void;
 }
 
-const createButton = (label: string, onClick: () => void): HTMLButtonElement => {
+export const createSettingsButton = (app: StoragePageActions): HTMLButtonElement => {
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = label;
-  button.addEventListener('click', onClick);
-  return button;
-};
-
-export const createSettingsButton = (app: StoragePageActions): HTMLButtonElement => {
-  const button = createButton('115- 设置', () => app.openSettings());
+  button.textContent = '115- 设置';
+  button.addEventListener('click', () => app.openSettings());
   button.id = 'minus115-settings';
   return button;
 };
@@ -43,47 +43,43 @@ const findToolbarButtonTemplate = (target: HTMLElement): HTMLButtonElement | nul
   return null;
 };
 
-const createToolbarButton = (
+export const createOfflineButton = (
   target: HTMLElement,
-  id: string,
-  labelText: string,
-  iconClass: string | null,
+  app: StoragePageActions,
+  signal: AbortSignal,
 ): HTMLButtonElement => {
   const source = findToolbarButtonTemplate(target);
   if (!source) {
-    throw new Error(`115- 创建“${labelText}”按钮失败：控制栏中没有模板按钮`);
+    throw new Error('115- 创建离线下载按钮失败：控制栏中没有模板按钮');
   }
 
   const button = source.cloneNode(true) as HTMLButtonElement;
   const label = document.createElement('span');
-  const children: HTMLElement[] = [];
-  if (iconClass !== null) {
-    const icon = document.createElement('i');
-    icon.className = iconClass;
-    children.push(icon);
-  }
-  label.textContent = labelText;
-  children.push(label);
-  button.replaceChildren(...children);
+  const icon = document.createElement('i');
+  icon.className = 'icon-operate black ifo-linktask';
+  label.textContent = '离线下载';
+  button.replaceChildren(icon, label);
   button.disabled = false;
   button.removeAttribute('aria-expanded');
   button.removeAttribute('aria-haspopup');
-  button.id = id;
+  button.removeAttribute('aria-label');
+  button.removeAttribute('title');
+  button.id = 'minus115-offline';
   button.type = 'button';
-  return button;
-};
-
-export const createOfflineButton = (target: HTMLElement): HTMLButtonElement => {
-  const button = createToolbarButton(
-    target,
-    'minus115-offline',
-    '离线下载',
-    'icon-operate black ifo-linktask',
-  );
   button.addEventListener('click', () => {
-    void openOfficialOfflineDownload().catch((error: unknown) => {
-      console.error('115- 打开官方离线下载弹窗失败', { error });
-    });
+    if (button.disabled) {
+      return;
+    }
+    button.disabled = true;
+    void openOfficialOfflineDownload(signal)
+      .catch((error: unknown) => {
+        if (signal.aborted) return;
+        console.error('115- 打开官方离线下载弹窗失败', { error });
+        app.showNotification('error', errorMessage(error));
+      })
+      .finally(() => {
+        button.disabled = false;
+      });
   });
   return button;
 };
@@ -92,29 +88,60 @@ const bindTransferAction = (
   button: HTMLButtonElement,
   app: StoragePageActions,
   labelText: string,
-  action: () => Promise<number>,
+  action: (files: StorageEntry[]) => Promise<TransferResult>,
+  signal: AbortSignal,
 ): void => {
   const label = button.querySelector<HTMLSpanElement>(':scope > span');
   if (!label) {
     throw new Error(`115- 绑定“${labelText}”失败：按钮缺少文字节点`);
   }
+  let selectionKey = '';
+  let failedFiles: StorageEntry[] = [];
+  let succeeded = 0;
   button.addEventListener('click', () => {
     if (button.disabled) {
       return;
     }
+    let selected: StorageEntry[];
+    try {
+      selected = getSelectedFiles();
+    } catch (error) {
+      app.showNotification('error', errorMessage(error));
+      return;
+    }
+    const nextKey = JSON.stringify(selected.map((file) => `${file.isDirectory}:${file.id}`).sort());
+    if (nextKey !== selectionKey) {
+      selectionKey = nextKey;
+      failedFiles = [];
+      succeeded = 0;
+    }
     button.disabled = true;
     label.textContent = '处理中…';
-    void action()
-      .then((count) => {
-        app.showNotification('success', `${labelText} 已处理 ${count} 个文件`);
+    void action(failedFiles.length > 0 ? failedFiles : selected)
+      .then((result) => {
+        if (signal.aborted) return;
+        succeeded += result.succeeded;
+        failedFiles = result.failed.map((failure) => failure.file);
+        const failure = result.failed[0];
+        if (failure) {
+          app.showNotification(
+            'error',
+            `${labelText} 已成功 ${succeeded} 个，失败 ${failedFiles.length} 个。${failure.file.name}：${failure.message}`,
+          );
+          return;
+        }
+        app.showNotification('success', `${labelText} 已处理 ${succeeded} 个文件`);
+        selectionKey = '';
+        succeeded = 0;
       })
       .catch((error: unknown) => {
-        console.error(`115- ${labelText} 失败`, { error });
+        if (signal.aborted) return;
+        console.error('115- 批量推送失败', { action: labelText, error });
         app.showNotification('error', errorMessage(error));
       })
       .finally(() => {
         button.disabled = false;
-        label.textContent = labelText;
+        label.textContent = failedFiles.length > 0 ? `${labelText}（重试失败项）` : labelText;
       });
   });
 };
@@ -135,13 +162,15 @@ const runBrowserDownload = (
   button: HTMLButtonElement,
   pickCode: string,
   app: StoragePageActions,
+  signal: AbortSignal,
 ): void => {
   if (button.disabled) {
     return;
   }
   button.disabled = true;
-  void downloadFileInBrowser(pickCode)
+  void downloadFileInBrowser(pickCode, signal)
     .catch((error: unknown) => {
+      if (signal.aborted) return;
       console.error('115- 浏览器下载失败', { error });
       app.showNotification('error', errorMessage(error));
     })
@@ -153,24 +182,27 @@ const runBrowserDownload = (
 const handleSelectedBrowserDownload = (
   button: HTMLButtonElement,
   app: StoragePageActions,
+  signal: AbortSignal,
 ): void => {
   try {
     const selected = getSelectedFiles();
     const file = selected[0];
     if (selected.length === 1 && file && !file.isDirectory) {
-      runBrowserDownload(button, file.pickCode, app);
+      runBrowserDownload(button, file.pickCode, app, signal);
       return;
     }
-    app.openFileDownload();
+    if (selected.length === 0) throw new Error('请选择需要下载的文件或文件夹');
+    app.openFileDownload(selected);
   } catch (error) {
     console.error('115- 读取选中文件失败', { error });
     app.showNotification('error', errorMessage(error));
   }
 };
 
-const createDownloadDropdown = (
+export const createSelectionDownload = (
   template: HTMLButtonElement,
   app: StoragePageActions,
+  signal: AbortSignal,
 ): HTMLDivElement => {
   const wrapper = document.createElement('div');
   wrapper.className = template.parentElement?.className || 'relative';
@@ -179,6 +211,8 @@ const createDownloadDropdown = (
   trigger.id = 'minus115-download';
   trigger.type = 'button';
   trigger.disabled = false;
+  trigger.removeAttribute('aria-label');
+  trigger.removeAttribute('title');
   trigger.classList.add('gap-1');
   const icon = trigger.querySelector<HTMLElement>(':scope > i');
   if (icon) {
@@ -190,39 +224,47 @@ const createDownloadDropdown = (
     throw new Error('115- 创建直链下载按钮失败：模板按钮缺少文字节点');
   }
   label.textContent = '直链下载';
-  let arrow = trigger.querySelector<HTMLImageElement>(':scope > img');
-  if (!arrow) {
-    arrow = document.createElement('img');
-    arrow.alt = '';
-    arrow.width = 12;
-    arrow.height = 12;
-    arrow.className = 'transition-transform';
-    arrow.src = '/arrow_down_small.svg';
-    trigger.append(arrow);
-  }
+  const arrow =
+    trigger.querySelector<HTMLImageElement>(':scope > img') ?? document.createElement('img');
+  arrow.alt = '';
+  arrow.width = 12;
+  arrow.height = 12;
+  arrow.className = 'transition-transform';
+  arrow.src = '/arrow_down_small.svg';
+  trigger.append(arrow);
 
   const getLinkButton = createMenuButton('minus115-get-link', '浏览器下载');
   getLinkButton.addEventListener('click', () =>
-    handleSelectedBrowserDownload(getLinkButton, app),
+    handleSelectedBrowserDownload(getLinkButton, app, signal),
   );
   const aria2Button = createMenuButton('minus115-aria2', '推送Aria2');
-  bindTransferAction(aria2Button, app, '推送Aria2', () =>
-    pushSelectedToAria2(getSelectedFiles(), {
-      rpcUrl: settings.aria2RpcUrl,
-      secret: settings.aria2Secret,
-    }),
+  bindTransferAction(
+    aria2Button,
+    app,
+    '推送Aria2',
+    (files) =>
+      pushSelectedToAria2(
+        files,
+        {
+          rpcUrl: settings.aria2RpcUrl,
+          secret: settings.aria2Secret,
+        },
+        signal,
+      ),
+    signal,
   );
   const idmButton = createMenuButton('minus115-idm', '推送IDM');
-  bindTransferAction(idmButton, app, '推送IDM', () =>
-    pushSelectedToIdm(getSelectedFiles(), { clientId: settings.idmClientId }),
+  bindTransferAction(
+    idmButton,
+    app,
+    '推送IDM',
+    (files) => pushSelectedToIdm(files, { clientId: settings.idmClientId }, signal),
+    signal,
   );
 
-  const menuItems = document.createElement('div');
-  menuItems.className = 'py-1';
-  menuItems.append(getLinkButton, aria2Button, idmButton);
   const menuSurface = document.createElement('div');
-  menuSurface.className = 'bg-white border border-gray-200 rounded-lg shadow-lg';
-  menuSurface.append(menuItems);
+  menuSurface.className = 'py-1 bg-white border border-gray-200 rounded-lg shadow-lg';
+  menuSurface.append(getLinkButton, aria2Button, idmButton);
   const menu = document.createElement('div');
   menu.className = 'absolute top-full left-0 pt-1 w-40 z-50';
   menu.hidden = true;
@@ -230,29 +272,21 @@ const createDownloadDropdown = (
 
   const setOpen = (open: boolean): void => {
     menu.hidden = !open;
-    if (arrow instanceof HTMLImageElement) {
-      arrow.classList.toggle('rotate-180', open);
-    }
+    arrow.classList.toggle('rotate-180', open);
   };
   wrapper.addEventListener('mouseenter', () => setOpen(true));
   wrapper.addEventListener('mouseleave', () => setOpen(false));
-  trigger.addEventListener('click', () => handleSelectedBrowserDownload(trigger, app));
+  wrapper.addEventListener('focusin', () => setOpen(true));
+  wrapper.addEventListener('focusout', (event) => {
+    if (!wrapper.contains(event.relatedTarget as Node | null)) setOpen(false);
+  });
+  trigger.addEventListener('click', () => handleSelectedBrowserDownload(trigger, app, signal));
   menu.addEventListener('click', () => setOpen(false));
   wrapper.append(trigger, menu);
   return wrapper;
 };
 
-export const createSelectionDownload = (
-  target: HTMLElement,
-  app: StoragePageActions,
-): HTMLDivElement => {
-  if (!(target instanceof HTMLButtonElement)) {
-    throw new Error('115- 创建选中项直链下载按钮失败：官方“下载”入口不是按钮');
-  }
-  return createDownloadDropdown(target, app);
-};
-
-export const setupFileItemDownload = (app: StoragePageActions): void => {
+export const setupFileItemDownload = (app: StoragePageActions, signal: AbortSignal): void => {
   document.addEventListener(
     'click',
     (event) => {
@@ -266,16 +300,16 @@ export const setupFileItemDownload = (app: StoragePageActions): void => {
         return;
       }
 
-      let pickCode: string;
       try {
-        pickCode = getFileFromListItem(button).pickCode;
+        const file = getFileFromListItem(button);
+        if (file.isDirectory) app.openFileDownload([file]);
+        else runBrowserDownload(button, file.pickCode, app, signal);
       } catch (error) {
         console.error('115- 读取列表项文件失败', { error });
         app.showNotification('error', errorMessage(error));
         return;
       }
-      runBrowserDownload(button, pickCode, app);
     },
-    true,
+    { capture: true, signal },
   );
 };

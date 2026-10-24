@@ -10,7 +10,11 @@ const startBrowserDownload = (url: string, name: string): void => {
   window.setTimeout(() => anchor.remove(), 100);
 };
 
-export const downloadFileInBrowser = async (pickCode: string): Promise<void> => {
-  const link = await getDownloadLink(pickCode);
+export const downloadFileInBrowser = async (
+  pickCode: string,
+  signal: AbortSignal,
+): Promise<void> => {
+  const link = await getDownloadLink(pickCode, signal);
+  signal.throwIfAborted();
   startBrowserDownload(link.url, link.name);
 };

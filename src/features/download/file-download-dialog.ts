@@ -1,38 +1,19 @@
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
+import { keyed } from 'lit/directives/keyed.js';
 import { errorMessage } from '@/core/errors';
 import { downloadFileInBrowser } from '@/features/download/browser-download';
 import { listFolder } from '@/platform/115/download-api';
-import { getSelectedFiles } from '@/platform/115/storage-selection';
-import type { StorageEntry } from '@/platform/115/storage-entry';
+import type { StorageEntry, StorageDirectory, StorageFile } from '@/platform/115/storage-entry';
 import { featureStyles } from '@/ui/feature-styles';
-import { notify } from '@/ui/notifications';
 import '@/ui/components/minus-dialog';
-
-interface DownloadNode extends StorageEntry {
-  children?: DownloadNode[];
-}
-
-const createNode = (entry: StorageEntry): DownloadNode => ({ ...entry });
-
-const replaceChildren = (
-  nodes: DownloadNode[],
-  pickCode: string,
-  children: DownloadNode[],
-): DownloadNode[] =>
-  nodes.map((node) => {
-    if (node.pickCode === pickCode) {
-      return { ...node, children };
-    }
-    return node.children
-      ? { ...node, children: replaceChildren(node.children, pickCode, children) }
-      : node;
-  });
 
 export class FileDownloadDialog extends LitElement {
   static properties = {
     downloadingCodes: { state: true },
+    errorText: { state: true },
     loadingDirectories: { state: true },
     nodes: { state: true },
+    directoryEntries: { state: true },
     openState: { state: true },
   };
 
@@ -90,116 +71,122 @@ export class FileDownloadDialog extends LitElement {
   ];
 
   private downloadingCodes: string[] = [];
+  private errorText = '';
   private activeDirectoryRequests = 0;
   private readonly directoryWaiters: Array<() => void> = [];
   private loadingDirectories: string[] = [];
-  private nodes: DownloadNode[] = [];
+  private nodes: readonly StorageEntry[] = [];
+  private directoryEntries = new Map<string, StorageEntry[]>();
   private openState = false;
-  private sessionId = 0;
+  private controller = new AbortController();
 
-  openDialog(): void {
-    try {
-      const selected = getSelectedFiles();
-      if (selected.length === 0) {
-        throw new Error('请选择文件');
-      }
-      this.sessionId += 1;
-      this.loadingDirectories = [];
-      this.nodes = selected.map(createNode);
-      this.openState = true;
-    } catch (error) {
-      notify(this, 'error', errorMessage(error));
-    }
+  openDialog(selected: readonly StorageEntry[]): void {
+    this.controller.abort();
+    this.controller = new AbortController();
+    this.errorText = '';
+    this.loadingDirectories = [];
+    this.downloadingCodes = [];
+    this.directoryEntries = new Map();
+    this.nodes = selected;
+    this.openState = true;
+  }
+
+  disconnectedCallback(): void {
+    this.controller.abort();
+    super.disconnectedCallback();
   }
 
   private closeDialog(): void {
-    this.sessionId += 1;
+    this.controller.abort();
     this.openState = false;
   }
 
-  private async listDirectory(directoryId: string): Promise<StorageEntry[]> {
+  private async listDirectory(directoryId: string, signal: AbortSignal): Promise<StorageEntry[]> {
     if (this.activeDirectoryRequests >= 4) {
       await new Promise<void>((resolve) => this.directoryWaiters.push(resolve));
+    } else {
+      this.activeDirectoryRequests += 1;
     }
-    this.activeDirectoryRequests += 1;
     try {
-      return await listFolder(directoryId);
+      signal.throwIfAborted();
+      return await listFolder(directoryId, signal);
     } finally {
-      this.activeDirectoryRequests -= 1;
-      this.directoryWaiters.shift()?.();
+      const next = this.directoryWaiters.shift();
+      if (next) next();
+      else this.activeDirectoryRequests -= 1;
     }
   }
 
-  private async loadDirectory(node: DownloadNode): Promise<void> {
+  private async loadDirectory(event: Event, node: StorageDirectory): Promise<void> {
+    const details = event.currentTarget as HTMLDetailsElement;
     if (
-      !node.isDirectory ||
-      node.children !== undefined ||
-      this.loadingDirectories.includes(node.pickCode)
+      !details.isConnected ||
+      !details.open ||
+      this.directoryEntries.has(node.id) ||
+      this.loadingDirectories.includes(node.id)
     ) {
       return;
     }
-    const currentSessionId = this.sessionId;
-    this.loadingDirectories = [...this.loadingDirectories, node.pickCode];
+    const { signal } = this.controller;
+    this.errorText = '';
+    this.loadingDirectories = [...this.loadingDirectories, node.id];
     try {
-      const children = (await this.listDirectory(node.directoryId)).map(createNode);
-      if (currentSessionId !== this.sessionId) {
-        return;
-      }
-      this.nodes = replaceChildren(this.nodes, node.pickCode, children);
+      const children = await this.listDirectory(node.id, signal);
+      signal.throwIfAborted();
+      this.directoryEntries = new Map(this.directoryEntries).set(node.id, children);
     } catch (error) {
-      if (currentSessionId === this.sessionId) {
-        notify(this, 'error', errorMessage(error));
-      }
-      throw error;
-    } finally {
-      if (currentSessionId === this.sessionId) {
-        this.loadingDirectories = this.loadingDirectories.filter((code) => code !== node.pickCode);
-      }
-    }
-  }
-
-  private handleToggle(event: Event, node: DownloadNode): void {
-    const details = event.currentTarget;
-    if (details instanceof HTMLDetailsElement && details.open) {
-      void this.loadDirectory(node).catch(() => {
+      if (!signal.aborted) {
+        this.errorText = errorMessage(error);
+        console.error('115- 读取文件夹失败', { directoryId: node.id, error });
         details.open = false;
-      });
+      }
+    } finally {
+      if (!signal.aborted) {
+        this.loadingDirectories = this.loadingDirectories.filter((id) => id !== node.id);
+      }
     }
   }
 
-  private async download(node: DownloadNode): Promise<void> {
+  private async download(node: StorageFile): Promise<void> {
     if (this.downloadingCodes.includes(node.pickCode)) {
       return;
     }
     this.downloadingCodes = [...this.downloadingCodes, node.pickCode];
+    this.errorText = '';
+    const { signal } = this.controller;
     try {
-      await downloadFileInBrowser(node.pickCode);
+      await downloadFileInBrowser(node.pickCode, signal);
     } catch (error) {
-      notify(this, 'error', errorMessage(error));
+      if (!signal.aborted) {
+        this.errorText = errorMessage(error);
+        console.error('115- 浏览器下载失败', { pickCode: node.pickCode, error });
+      }
     } finally {
-      this.downloadingCodes = this.downloadingCodes.filter((code) => code !== node.pickCode);
+      if (!signal.aborted) {
+        this.downloadingCodes = this.downloadingCodes.filter((code) => code !== node.pickCode);
+      }
     }
   }
 
-  private renderNodes(nodes: DownloadNode[]): TemplateResult {
+  private renderNodes(nodes: readonly StorageEntry[]): TemplateResult {
     return html`
       <ul>
         ${nodes.map((node) =>
           node.isDirectory
             ? html`
                 <li>
-                  <details @toggle=${(event: Event) => this.handleToggle(event, node)}>
+                  <details @toggle=${(event: Event) => void this.loadDirectory(event, node)}>
                     <summary>
                       ${node.name}
-                      ${this.loadingDirectories.includes(node.pickCode)
+                      ${this.loadingDirectories.includes(node.id)
                         ? html`<span class="folder-status">读取中…</span>`
                         : nothing}
                     </summary>
-                    ${node.children === undefined
+                    ${!this.directoryEntries.has(node.id)
                       ? nothing
-                      : node.children.length === 0
+                      : this.directoryEntries.get(node.id)?.length === 0
                         ? html`<p class="empty">空文件夹</p>`
-                        : this.renderNodes(node.children)}
+                        : this.renderNodes(this.directoryEntries.get(node.id)!)}
                   </details>
                 </li>
               `
@@ -226,9 +213,10 @@ export class FileDownloadDialog extends LitElement {
       <minus115-dialog
         .heading=${'文件下载'}
         .open=${this.openState}
+        .errorMessage=${this.errorText}
         @minus-close=${this.closeDialog}
       >
-        <div class="tree-root">${this.renderNodes(this.nodes)}</div>
+        <div class="tree-root">${keyed(this.controller, this.renderNodes(this.nodes))}</div>
       </minus115-dialog>
     `;
   }

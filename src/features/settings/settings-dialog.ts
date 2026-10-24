@@ -2,12 +2,12 @@ import { LitElement, css, html } from 'lit';
 import { errorMessage } from '@/core/errors';
 import { saveSettings, settings, type Settings } from '@/features/settings/settings-store';
 import { featureStyles } from '@/ui/feature-styles';
-import { notify } from '@/ui/notifications';
 import '@/ui/components/minus-dialog';
 
 export class SettingsDialog extends LitElement {
   static properties = {
     draft: { state: true },
+    errorText: { state: true },
     openState: { state: true },
   };
 
@@ -43,9 +43,11 @@ export class SettingsDialog extends LitElement {
   ];
 
   private draft: Settings = { ...settings };
+  private errorText = '';
   private openState = false;
 
   openDialog(): void {
+    this.errorText = '';
     this.draft = { ...settings };
     this.openState = true;
   }
@@ -67,7 +69,8 @@ export class SettingsDialog extends LitElement {
       saveSettings(this.draft);
       window.location.reload();
     } catch (error) {
-      notify(this, 'error', errorMessage(error));
+      this.errorText = errorMessage(error);
+      console.error('115- 保存设置失败', { error });
     }
   }
 
@@ -76,6 +79,7 @@ export class SettingsDialog extends LitElement {
       <minus115-dialog
         .heading=${'115- 设置'}
         .open=${this.openState}
+        .errorMessage=${this.errorText}
         @minus-close=${this.closeDialog}
       >
         <div class="settings">

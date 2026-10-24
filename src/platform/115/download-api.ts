@@ -4,12 +4,13 @@ import {
   isObject,
   parseObject,
   requireObject,
-  requireNumber,
+  requireNonNegativeInteger,
+  requireArray,
   requireString,
   optionalString,
 } from '@/core/validation';
 import { decodeDownloadResponse, encodeDownloadRequest } from '@/platform/115/download-codec';
-import type { StorageEntry } from '@/platform/115/storage-entry';
+import { readStorageEntry, type StorageEntry } from '@/platform/115/storage-entry';
 
 export interface DownloadLink {
   name: string;
@@ -19,86 +20,71 @@ export interface DownloadLink {
 
 const FOLDER_PAGE_SIZE = 1_000;
 
-const readFileEntry = (value: unknown): StorageEntry => {
-  const operation = '读取文件夹内容';
-  if (!isObject(value)) {
-    throw new ApplicationError(operation, '文件条目不是对象');
-  }
-  const name = requireString(value, 'n', operation);
-  const pickCode = requireString(value, 'pc', operation);
-  const fileId = optionalString(value, 'fid');
-  const directoryId = optionalString(value, 'cid');
-  if (!fileId && !directoryId) {
-    throw new ApplicationError(operation, `文件条目“${name}”缺少文件或目录 ID`);
-  }
-  return {
-    directoryId,
-    isDirectory: !fileId,
-    name,
-    pickCode,
-    size: fileId ? requireNumber(value, 's', operation) : 0,
-  };
-};
-
 interface StorageEntryPage {
   entries: StorageEntry[];
   total: number;
 }
 
-const listFolderPage = async (directoryId: string, offset: number): Promise<StorageEntryPage> => {
+const listFolderPage = async (
+  directoryId: string,
+  offset: number,
+  signal: AbortSignal,
+): Promise<StorageEntryPage> => {
   const operation = '读取文件夹内容';
   const response = await requestTextWithRetry({
     operation,
     method: 'GET',
+    signal,
     url: `https://webapi.115.com/files?aid=1&cid=${encodeURIComponent(directoryId)}&show_dir=1&offset=${offset}&limit=${FOLDER_PAGE_SIZE}&format=json`,
   });
   const json = parseObject(response.body, operation);
   if (json.state !== true) {
     throw new ApplicationError(operation, optionalString(json, 'error') || '115 返回失败状态');
   }
-  if (!Array.isArray(json.data)) {
-    throw new ApplicationError(operation, '响应字段 data 不是数组');
-  }
   return {
-    entries: json.data.map(readFileEntry),
-    total: requireNumber(json, 'count', operation),
+    entries: requireArray(json, 'data', operation).map(readStorageEntry),
+    total: requireNonNegativeInteger(json, 'count', operation),
   };
 };
 
-export const listFolder = async (directoryId: string): Promise<StorageEntry[]> => {
+export const listFolder = async (
+  directoryId: string,
+  signal: AbortSignal,
+): Promise<StorageEntry[]> => {
   const operation = '读取文件夹内容';
-  const entries: StorageEntry[] = [];
-  const pickCodes = new Set<string>();
+  const entries = new Map<string, StorageEntry>();
   let offset = 0;
 
   while (true) {
-    const page = await listFolderPage(directoryId, offset);
+    const page = await listFolderPage(directoryId, offset, signal);
+    const previousSize = entries.size;
     for (const entry of page.entries) {
-      if (!pickCodes.has(entry.pickCode)) {
-        pickCodes.add(entry.pickCode);
-        entries.push(entry);
-      }
+      entries.set(`${entry.isDirectory}:${entry.id}`, entry);
     }
-    if (entries.length >= page.total) {
-      return entries;
-    }
-    if (page.entries.length === 0) {
-      throw new ApplicationError(
-        operation,
-        `目录 ${directoryId} 分页提前结束，预期 ${page.total} 项，实际读取 ${entries.length} 项`,
-      );
+    if (entries.size >= page.total) {
+      return [...entries.values()];
     }
     offset += page.entries.length;
+    if (entries.size === previousSize || offset >= page.total) {
+      throw new ApplicationError(
+        operation,
+        `目录 ${directoryId} 分页不完整，预期 ${page.total} 项，实际读取 ${entries.size} 项，请重新读取`,
+      );
+    }
   }
 };
 
-export const getDownloadLink = async (pickCode: string): Promise<DownloadLink> => {
+export const getDownloadLink = async (
+  pickCode: string,
+  signal: AbortSignal,
+): Promise<DownloadLink> => {
   const operation = '获取文件下载地址';
   const timestamp = Math.floor(Date.now() / 1000);
   const encoded = encodeDownloadRequest(pickCode, timestamp);
   const response = await requestTextWithRetry({
     operation,
     method: 'POST',
+    signal,
     url: `http://proapi.115.com/app/chrome/downurl?t=${timestamp}`,
     data: `data=${encodeURIComponent(encoded.data)}`,
     headers: {
@@ -119,9 +105,16 @@ export const getDownloadLink = async (pickCode: string): Promise<DownloadLink> =
     throw new ApplicationError(operation, '解密响应中没有文件信息');
   }
   const urlObject = requireObject(first, 'url', operation);
+  if (requireString(first, 'pick_code', operation) !== pickCode) {
+    throw new ApplicationError(operation, '响应文件提取码与请求不一致');
+  }
+  const url = new URL(requireString(urlObject, 'url', operation));
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ApplicationError(operation, `下载地址协议无效：${url.protocol}`);
+  }
   return {
     name: requireString(first, 'file_name', operation),
-    pickCode: requireString(first, 'pick_code', operation),
-    url: requireString(urlObject, 'url', operation),
+    pickCode,
+    url: url.href,
   };
 };

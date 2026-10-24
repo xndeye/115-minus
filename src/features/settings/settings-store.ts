@@ -9,27 +9,11 @@ export interface Settings {
   webFullscreen: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = {
+const DEFAULT_SETTINGS: Settings = {
   aria2RpcUrl: 'http://127.0.0.1:6800/jsonrpc',
   aria2Secret: '',
   idmClientId: '1',
   webFullscreen: true,
-};
-
-const directString = (
-  value: Record<string, unknown>,
-  key: 'aria2RpcUrl' | 'aria2Secret' | 'idmClientId',
-): string | undefined => {
-  const direct = value[key];
-  return typeof direct === 'string' ? direct : undefined;
-};
-
-const directBoolean = (
-  value: Record<string, unknown>,
-  key: 'webFullscreen',
-): boolean | undefined => {
-  const direct = value[key];
-  return typeof direct === 'boolean' ? direct : undefined;
 };
 
 const parseSettings = (stored: unknown): Settings => {
@@ -37,10 +21,16 @@ const parseSettings = (stored: unknown): Settings => {
     return { ...DEFAULT_SETTINGS };
   }
   return {
-    aria2RpcUrl: directString(stored, 'aria2RpcUrl') ?? DEFAULT_SETTINGS.aria2RpcUrl,
-    aria2Secret: directString(stored, 'aria2Secret') ?? DEFAULT_SETTINGS.aria2Secret,
-    idmClientId: directString(stored, 'idmClientId') ?? DEFAULT_SETTINGS.idmClientId,
-    webFullscreen: directBoolean(stored, 'webFullscreen') ?? DEFAULT_SETTINGS.webFullscreen,
+    aria2RpcUrl:
+      typeof stored.aria2RpcUrl === 'string' ? stored.aria2RpcUrl : DEFAULT_SETTINGS.aria2RpcUrl,
+    aria2Secret:
+      typeof stored.aria2Secret === 'string' ? stored.aria2Secret : DEFAULT_SETTINGS.aria2Secret,
+    idmClientId:
+      typeof stored.idmClientId === 'string' ? stored.idmClientId : DEFAULT_SETTINGS.idmClientId,
+    webFullscreen:
+      typeof stored.webFullscreen === 'boolean'
+        ? stored.webFullscreen
+        : DEFAULT_SETTINGS.webFullscreen,
   };
 };
 
